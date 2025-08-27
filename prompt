@@ -1,0 +1,49 @@
+Task: Fix frontend WebSocket two-way communication for AIModeAgents
+
+Repo: https://github.com/7homasISPG/aimodeagents
+Target folder: chat_interfaced_Agents (frontend React .jsx files)
+Backend entry: app/main3.py
+Autogen runner: app/autogen_runner3.py
+
+Goal:
+- Modify the frontend so WebSocket-driven multi-agent conversations work smoothly:
+  - Correctly connect to backend WebSocket, robustly log and surface connection lifecycle (onopen/onclose/onerror).
+  - Send user messages over WebSocket during interactive sessions.
+  - Parse and render backend messages of two structured shapes:
+    1) Agent streaming messages: `{"type":"agent_message","sender":"Supervisor","text":"..."}`
+    2) Final summary: `{"type":"final_answer","text":"..."}`
+  - Gracefully fallback to plain-text messages.
+  - Do not render the initial `interactive_session_start` signal as a chat bubble — treat it as a signal to connect WebSocket only.
+  - Separate UI loading state for HTTP (RAG) vs interactive (WebSocket). In interactive mode, allow sending multiple messages without blocking on a single `isLoading` flag.
+  - Render different agent roles (supervisor, servicecenteragent, vehicleinfoagent) with distinct bubble styles (or at minimum label/sender visible). Keep user messages as right-side bubbles.
+
+Files to update:
+- `ChatInterface2.jsx` (primary): update `connectWebSocket` handler (onopen/onmessage/onclose/onerror), and `handleSendMessage` logic to:
+  - When not interactive: call POST /api/ask and handle `interactive_session_start` by connecting WS (do not push that as a message).
+  - When interactive and WS open: send raw user text via `ws.send(query)` and return.
+  - In HTTP mode set `isLoading` while awaiting response; in WebSocket mode do not block input—optionally show typing state until first agent message arrives.
+- (Optional) small UI tweaks for message rendering in existing `ChatView` / message components to show `role` (`supervisor`, `servicecenteragent`, etc.).
+
+Message handling expectations (frontend onmessage behavior):
+- Try JSON.parse(event.data).
+  - If `type === 'agent_message'` => push `{ role: parsed.sender.toLowerCase(), content: { text: parsed.text }, timestamp }` into messages state.
+  - Else if `type === 'final_answer'` => push `{ role: 'assistant', content: { text: parsed.text }, timestamp }`.
+  - Else fallback => push plain text as assistant message.
+- Ensure any unknown formats trigger a console warning but still show text fallback.
+
+Acceptance criteria:
+1. After POST `/api/ask` returns `{ type: "interactive_session_start" }`, the frontend connects WebSocket automatically (no chat bubble created for that signal).
+2. When backend sends `agent_message` JSON, the message appears in the chat (with sender shown or styled) almost immediately.
+3. User can send multiple follow-up messages via WebSocket without the frontend blocking them because of `isLoading`.
+4. Final summary (`final_answer`) appears as assistant reply and then WebSocket closes only after backend sends `END_OF_CONVERSATION`.
+5. Provide the modified frontend only as a zip (no local testing required). The zip should be named `aimodeagents-frontend-fix.zip` and include a README describing changed files and how to run (npm install && npm run dev).
+
+Notes for implementer:
+- Do not alter backend unless strictly necessary; frontend must handle both legacy plain-text and new structured JSON.
+- Add robust console logs for onopen/onmessage/onclose/onerror so backend logs can be correlated.
+- Keep all other UI behavior intact; only modify what’s necessary for WebSocket reliability and message parsing.
+- Do not run or test locally; produce the zip and a short changelog in README.
+
+Deliverable:
+- A zip `aimodeagents-frontend-fix.zip` containing the full modified frontend code (all source files changed), plus a README listing modifications and how to run.
+
